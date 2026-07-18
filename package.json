@@ -1,0 +1,14 @@
+{
+  "name": "nostr-reaction-viewer",
+  "version": "1.0.0",
+  "description": "Static GitHub Pages site to browse the Nostr posts you have reacted to.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "node tools/server.mjs 8123",
+    "test": "node tools/verify.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}
