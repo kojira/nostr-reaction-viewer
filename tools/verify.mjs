@@ -102,10 +102,32 @@ async function main() {
   const browser = await chromium.launch();
   const page = await browser.newPage();
   const consoleErrors = [];
-  // Ignore expected failures from the fake image domains used by the mock.
-  const isNetworkNoise = (t) => /Failed to load resource|ERR_NAME_NOT_RESOLVED|net::/.test(t);
-  page.on("console", (m) => { if (m.type() === "error" && !isNetworkNoise(m.text())) consoleErrors.push(m.text()); });
+  page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
   page.on("pageerror", (e) => consoleErrors.push(String(e)));
+
+  // Keep the run fully local/offline: fulfill every non-local request (the mock's
+  // fake image domains) with a tiny in-memory PNG instead of hitting the network.
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await page.route("**/*", (route) => {
+    const req = route.request();
+    if (req.url().startsWith(BASE)) return route.continue();
+    if (req.resourceType() === "image") {
+      return route.fulfill({ status: 200, contentType: "image/png", body: PNG });
+    }
+    return route.abort();
+  });
+
+  // Scrolls the sentinel into view every poll so infinite-scroll loads the
+  // final (empty) page and reveals the end marker.
+  const waitForEnd = () => page.waitForFunction(() => {
+    const end = document.getElementById("end");
+    if ((end && !end.hidden) || window.__nrv.app.exhausted) return true;
+    window.scrollTo(0, document.body.scrollHeight);
+    return false;
+  }, null, { timeout: 12000, polling: 200 });
 
   await page.addInitScript(installMocks);
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
@@ -117,7 +139,7 @@ async function main() {
   // 2. Log in and load reactions.
   await page.click("#login-btn");
   await page.waitForSelector(".card", { timeout: 8000 });
-  await page.waitForFunction(() => document.getElementById("end") && !document.getElementById("end").hidden, null, { timeout: 8000 });
+  await waitForEnd();
 
   const allCount = await page.$$eval(".card", (els) => els.length);
   assert("shows all 6 reacted posts (default filter)", allCount === 6, `got ${allCount}`);
@@ -130,10 +152,7 @@ async function main() {
 
   // 3. Image filter = with images.
   await page.click('.seg[data-image="with"]');
-  await page.waitForFunction(() => {
-    const end = document.getElementById("end");
-    return end && !end.hidden;
-  }, null, { timeout: 8000 });
+  await waitForEnd();
   await page.waitForTimeout(200);
   const withCount = await page.$$eval(".card", (els) => els.length);
   const withMedia = await page.$$eval(".card", (els) => els.filter((c) => c.querySelector(".card-media")).length);
@@ -141,7 +160,7 @@ async function main() {
 
   // 4. Image filter = without images.
   await page.click('.seg[data-image="without"]');
-  await page.waitForFunction(() => { const e = document.getElementById("end"); return e && !e.hidden; }, null, { timeout: 8000 });
+  await waitForEnd();
   await page.waitForTimeout(200);
   const withoutCount = await page.$$eval(".card", (els) => els.length);
   const withoutMedia = await page.$$eval(".card .card-media", (els) => els.length);
